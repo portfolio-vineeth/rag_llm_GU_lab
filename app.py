@@ -1,12 +1,13 @@
+import streamlit as st
+import os
+import dotenv
+import uuid
+
 if os.name == 'posix':
     __import__('pysqlite3')
     import sys
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
-import streamlit as st
-import os
-import dotenv
-import uuid
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain.schema import HumanMessage, AIMessage
