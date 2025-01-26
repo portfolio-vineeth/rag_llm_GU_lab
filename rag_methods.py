@@ -16,7 +16,9 @@ from langchain_openai import OpenAIEmbeddings, AzureOpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_chroma import Chroma  # Updated import
+from langchain_chroma import Chroma
+import chromadb
+from chromadb.config import Settings
 
 dotenv.load_dotenv()
 
@@ -45,12 +47,19 @@ def initialize_vector_db(docs):
             openai_api_version="2024-02-15-preview",
         )
 
+    collection_name = f"rag_session_{st.session_state.session_id}_{int(time())}"
+    
     vector_db = Chroma.from_documents(
         documents=docs,
         embedding=embedding,
-        collection_name=f"{str(time()).replace('.', '')[:14]}_" + st.session_state['session_id'],
+        collection_name=collection_name,
+        persist_directory="./chroma_cache",
+        client_settings=Settings(
+            chroma_db_impl="duckdb+parquet",
+            anonymized_telemetry=False
+        )
     )
-
+    
     return vector_db
 
 def load_pretrained_db():
@@ -87,24 +96,19 @@ def load_pretrained_db():
                 openai_api_version="2024-02-15-preview",
             )
 
-        # Modern Chroma client configuration
-        import chromadb
-        from chromadb.config import Settings
-        
         client = chromadb.PersistentClient(
-            path=os.path.join(temp_dir, collection_name),
+            path=temp_dir,
             settings=Settings(
                 allow_reset=True,
                 anonymized_telemetry=False
-            ),
-            tenant="default_tenant",
-            database="default_database"
+            )
         )
 
         vector_db = Chroma(
             client=client,
             collection_name=collection_name,
-            embedding_function=embedding
+            embedding_function=embedding,
+            persist_directory=temp_dir
         )
         
         return vector_db
@@ -113,12 +117,12 @@ def load_pretrained_db():
         st.error(f"Error loading pretrained vector database: {e}")
         return None
 
-
 def cleanup_temp_directory():
-    """Clean up temporary directory when session ends"""
-    temp_dir = "./temp_vectordb"
-    if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    """Clean up temporary directories when session ends"""
+    temp_dirs = ["./temp_vectordb", "./chroma_cache"]
+    for temp_dir in temp_dirs:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 def load_doc_to_db():
     """Load documents to the vector database"""
@@ -192,7 +196,7 @@ def _split_and_load_docs(docs):
     document_chunks = text_splitter.split_documents(docs)
 
     if "vector_db" not in st.session_state:
-        st.session_state.vector_db = initialize_vector_db(docs)
+        st.session_state.vector_db = initialize_vector_db(document_chunks)
     else:
         st.session_state.vector_db.add_documents(document_chunks)
 
