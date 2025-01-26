@@ -112,7 +112,7 @@ def main():
 
    for question, answer in st.session_state.chat_history:
        st.markdown(f'<div class="chat-box user-message"><strong>You:</strong> {question}</div>', unsafe_allow_html=True)
-       st.markdown(f'<div class="chat-box bot-message"><strong>Bot:</strong> {answer}</div>', unsafe_allow_html=True)
+       st.markdown(f'<div class="chat-box bot-message"><strong>Tutor:</strong> {answer}</div>', unsafe_allow_html=True)
 
    user_input = st.text_input("Ask a question:", key="user_input")
 
