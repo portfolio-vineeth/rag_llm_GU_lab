@@ -95,17 +95,16 @@ def load_pretrained_db():
             path=os.path.join(temp_dir, collection_name),
             settings=Settings(
                 allow_reset=True,
-                anonymized_telemetry=False,
-                tenant_id="default_tenant",  # Correct location for tenant
-                database="default_database"  # Correct location for database
-            )
+                anonymized_telemetry=False
+            ),
+            tenant="default_tenant",
+            database="default_database"
         )
 
         vector_db = Chroma(
             client=client,
             collection_name=collection_name,
             embedding_function=embedding
-            # Removed tenant/database from here
         )
         
         return vector_db
