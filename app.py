@@ -2,9 +2,9 @@ import os
 import streamlit as st
 
 if os.name == 'posix':
-    __import__('pysqlite3')
-    import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+   __import__('pysqlite3')
+   import sys
+   sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 from langchain_community.chat_models import ChatOpenAI
 from langchain_community.embeddings import OpenAIEmbeddings
@@ -12,76 +12,56 @@ from langchain_chroma import Chroma
 from langchain.prompts import PromptTemplate
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
-from langchain.docstore.document import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-import gdown
-import zipfile
 
-# Move these outside main() to prevent recreation on each rerun
 if 'memory' not in st.session_state:
-    st.session_state.memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True,
-        output_key='answer'
-    )
+   st.session_state.memory = ConversationBufferMemory(
+       memory_key="chat_history",
+       return_messages=True,
+       output_key='answer'
+   )
 
 if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+   st.session_state.chat_history = []
 
 def set_openai_api_key():
-    if "api_key" not in st.session_state:
-        st.session_state.api_key = None
-    
-    st.sidebar.header("API Key Configuration")
-    api_key = st.sidebar.text_input(
-        "Enter your OpenAI API key:",
-        type="password",
-        placeholder="sk-...",
-        key="api_key_input"
-    )
-    
-    if api_key:
-        st.session_state.api_key = api_key
-        os.environ["OPENAI_API_KEY"] = api_key
-        return api_key
-    return None
+   if "api_key" not in st.session_state:
+       st.session_state.api_key = None
+   
+   st.sidebar.header("API Key Configuration")
+   api_key = st.sidebar.text_input(
+       "Enter your OpenAI API key:",
+       type="password",
+       placeholder="sk-...",
+       key="api_key_input"
+   )
+   
+   if api_key:
+       st.session_state.api_key = api_key
+       os.environ["OPENAI_API_KEY"] = api_key
+       return api_key
+   return None
 
 def initialize_llm():
-    return ChatOpenAI(
-        model_name="gpt-3.5-turbo",
-        temperature=0.7
-    )
-
-def download_and_unzip_from_drive(url, output_dir='db'):
-    # Ensure the output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Download the file from Google Drive
-    gdown.download(url, output='temp.zip', quiet=False)
-    
-    # Unzip the file
-    with zipfile.ZipFile('temp.zip', 'r') as zip_ref:
-        zip_ref.extractall(output_dir)
-    
-    # Remove the temporary zip file
-    os.remove('temp.zip')
-    
-    # Verify files were extracted
-    if not os.listdir(output_dir):
-        st.error(f"Failed to unzip files to {output_dir}. The directory is empty.")
-        return False
-    return True
+   return ChatOpenAI(
+       model_name="gpt-3.5-turbo",
+       temperature=0.7
+   )
 
 def load_existing_vectorstore(persist_directory='db_vin'):
-    try:
-        embedding = OpenAIEmbeddings()
-        return Chroma(persist_directory=persist_directory, embedding_function=embedding)
-    except Exception as e:
-        st.error(f"Error loading vector store: {e}")
-        return None
+   try:
+       if not os.environ.get("OPENAI_API_KEY"):
+           st.error("OpenAI API key not found")
+           return None
+       embedding = OpenAIEmbeddings()
+       return Chroma(persist_directory=persist_directory, embedding_function=embedding)
+   except Exception as e:
+       st.error(f"Error loading vector store: {e}")
+       return None
 
-qa_template = """
-Use the following conversation history and context to answer the question at the end.
+def create_chain(vectorstore, llm):
+   prompt = PromptTemplate(
+       input_variables=["context", "chat_history", "question"],
+       template="""Use the following conversation history and context to answer the question at the end.
 If you don't know the answer, just say that you don't know; don't try to make up an answer.
 give descriptive answers.
 
@@ -93,82 +73,49 @@ Context:
 
 Question: {question}
 Helpful Answer:"""
-
-def create_chain(vectorstore, llm):
-    prompt = PromptTemplate(
-        input_variables=["context", "chat_history", "question"],
-        template=qa_template
-    )
-    
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
-    return ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=retriever,
-        memory=st.session_state.memory,
-        return_source_documents=True,
-        combine_docs_chain_kwargs={'prompt': prompt},
-        verbose=True
-    )
+   )
+   
+   retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
+   return ConversationalRetrievalChain.from_llm(
+       llm=llm,
+       retriever=retriever,
+       memory=st.session_state.memory,
+       return_source_documents=True,
+       combine_docs_chain_kwargs={'prompt': prompt},
+       verbose=True
+   )
 
 def main():
-    st.set_page_config(page_title="RAG QA Bot", page_icon="🤖", layout="wide")
+   st.set_page_config(page_title="RAG QA Bot", page_icon="🤖", layout="wide")
+   st.title("🤖 RAG Composite AI Tutor")
 
-    st.markdown("""
-        <style>
-        .chat-box { border: 2px solid #e0e0e0; border-radius: 10px; padding: 10px; margin-bottom: 20px; }
-        .user-message { background-color: #e8f5e9; border: 1px solid #c8e6c9; padding: 10px; border-radius: 10px; margin-bottom: 10px; }
-        .bot-message { background-color: #f3e5f5; border: 1px solid #e1bee7; padding: 10px; border-radius: 10px; margin-bottom: 10px; }
-        .input-container { position: fixed; bottom: 0; width: 100%; background-color: #ffffff; padding: 10px; }
-        </style>
-    """, unsafe_allow_html=True)
+   api_key = set_openai_api_key()
+   if not api_key:
+       return
 
-    st.title("🤖 RAG Composite AI Tutor")
+   if 'qa_chain' not in st.session_state:
+       llm = initialize_llm()
+       vectordb = load_existing_vectorstore()
+       
+       if vectordb is None:
+           st.error("Failed to initialize vector store")
+           return
+           
+       st.session_state.qa_chain = create_chain(vectordb, llm)
 
-    api_key = set_openai_api_key()
-    if not api_key:
-        return
+   for question, answer in st.session_state.chat_history:
+       st.markdown(f'<div class="chat-box user-message"><strong>You:</strong> {question}</div>', unsafe_allow_html=True)
+       st.markdown(f'<div class="chat-box bot-message"><strong>Bot:</strong> {answer}</div>', unsafe_allow_html=True)
 
-    if 'qa_chain' not in st.session_state:
-        llm = initialize_llm()
-        
-        # Download and unzip the vector store from Google Drive
-        google_drive_url = "https://drive.google.com/uc?id=1st0NiHiRjLX2NUvCuph3814Zu-oQ0iBs"
-        download_and_unzip_from_drive(google_drive_url)
-        
-        # Verify the 'db' directory exists
-        if not os.path.exists('db'):
-            st.error("The 'db_vin' directory does not exist. Please check the download and unzip process.")
-            return
-        
-        # Load the existing vector store
-        vectordb = load_existing_vectorstore()
-        if vectordb is None:
-            st.error("Failed to initialize vector store. Please check the 'db' directory.")
-            return
-            
-        # Create the QA chain
-        st.session_state.qa_chain = create_chain(vectordb, llm)
-        if st.session_state.qa_chain is None:
-            st.error("Failed to initialize QA chain")
-            return
+   user_input = st.text_input("Ask a question:", key="user_input")
 
-    # Display chat history
-    for question, answer in st.session_state.chat_history:
-        st.markdown(f'<div class="chat-box user-message"><strong>You:</strong> {question}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="chat-box bot-message"><strong>Bot:</strong> {answer}</div>', unsafe_allow_html=True)
-
-    # User input
-    user_input = st.text_input("Ask a question:", key="user_input")
-
-    if user_input and user_input != st.session_state.get('last_input'):
-        st.session_state.last_input = user_input
-        
-        with st.spinner("Processing..."):
-            result = st.session_state.qa_chain.invoke({"question": user_input})
-            response = result['answer']
-            st.session_state.chat_history.append((user_input, response))
-            
-        st.rerun()
+   if user_input and user_input != st.session_state.get('last_input'):
+       st.session_state.last_input = user_input
+       with st.spinner("Processing..."):
+           result = st.session_state.qa_chain.invoke({"question": user_input})
+           response = result['answer']
+           st.session_state.chat_history.append((user_input, response))
+       st.rerun()
 
 if __name__ == "__main__":
-    main()
+   main()
