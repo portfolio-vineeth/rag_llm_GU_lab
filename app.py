@@ -1,26 +1,76 @@
 import os
 import streamlit as st
+
 if os.name == 'posix':
     __import__('pysqlite3')
     import sys
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
 from langchain_community.chat_models import ChatOpenAI
 from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain.prompts import PromptTemplate
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+import gdown
+import zipfile
 
-# Set OpenAI API key
-os.environ["OPENAI_API_KEY"] = "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"
+# Move these outside main() to prevent recreation on each rerun
+if 'memory' not in st.session_state:
+    st.session_state.memory = ConversationBufferMemory(
+        memory_key="chat_history",
+        return_messages=True,
+        output_key='answer'
+    )
 
-# Initialize OpenAI LLM
-turbo_llm = ChatOpenAI(
-    model_name="gpt-3.5-turbo",
-    temperature=0.7
-)
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+
+def set_openai_api_key():
+    if "api_key" not in st.session_state:
+        st.session_state.api_key = None
+    
+    st.sidebar.header("API Key Configuration")
+    api_key = st.sidebar.text_input(
+        "Enter your OpenAI API key:",
+        type="password",
+        placeholder="sk-...",
+        key="api_key_input"
+    )
+    
+    if api_key:
+        st.session_state.api_key = api_key
+        os.environ["OPENAI_API_KEY"] = api_key
+        return api_key
+    return None
+
+def initialize_llm():
+    return ChatOpenAI(
+        model_name="gpt-3.5-turbo",
+        temperature=0.7
+    )
+
+def download_and_unzip_from_drive(url, output_dir='db'):
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Download the file from Google Drive
+    gdown.download(url, output='temp.zip', quiet=False)
+    
+    # Unzip the file
+    with zipfile.ZipFile('temp.zip', 'r') as zip_ref:
+        zip_ref.extractall(output_dir)
+    
+    # Remove the temporary zip file
+    os.remove('temp.zip')
+    
+    # Verify files were extracted
+    if not os.listdir(output_dir):
+        st.error(f"Failed to unzip files to {output_dir}. The directory is empty.")
+        return False
+    return True
 
 def load_existing_vectorstore(persist_directory='db_vin'):
     try:
@@ -29,42 +79,12 @@ def load_existing_vectorstore(persist_directory='db_vin'):
     except Exception as e:
         st.error(f"Error loading vector store: {e}")
         return None
-def create_vectorstore_from_path(file_path, persist_directory='db'):
-    """Create vector store from a preloaded .txt file"""
-    st.info("Processing preloaded file and creating vector store...")
-    try:
-        # Read file content
-        with open(file_path, "r", encoding="utf-8") as file:
-            content = file.read()
 
-        # Split content into manageable chunks
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,  # Adjust chunk size
-            chunk_overlap=200  # Ensure context continuity
-        )
-        documents = [Document(page_content=chunk) for chunk in text_splitter.split_text(content)]
-
-        # Create embeddings and vector store
-        embedding = OpenAIEmbeddings()
-        vectorstore = Chroma.from_documents(
-            documents=documents,
-            embedding=embedding,
-            persist_directory=persist_directory
-        )
-        vectorstore.persist()
-        st.success(f"Vector store created successfully with {len(documents)} chunks.")
-        return vectorstore
-
-    except Exception as e:
-        st.error("Error while creating vector store from preloaded file.")
-        st.error(f"Details: {e}")
-        return None
-
-# Define QA template
 qa_template = """
 Use the following conversation history and context to answer the question at the end.
 If you don't know the answer, just say that you don't know; don't try to make up an answer.
-give descriptive answers. Also explain it in easy terms.
+give descriptive answers.
+
 Conversation History:
 {chat_history}
 
@@ -72,90 +92,83 @@ Context:
 {context}
 
 Question: {question}
-Helpful Answer:
-"""
+Helpful Answer:"""
 
-# Create prompt template
-prompt = PromptTemplate(
-    input_variables=["context", "chat_history", "question"],
-    template=qa_template
-)
-
-# Initialize memory
-memory = ConversationBufferMemory(
-    memory_key="chat_history",
-    return_messages=True,
-    output_key='answer'
-)
-
-def format_source_documents(source_documents):
-    sources = []
-    for doc in source_documents:
-        if 'source' in doc.metadata:
-            sources.append(f"- {doc.metadata['source']}")
-
-    if sources:
-        return "\n\nSources:\n" + "\n".join(sources)
-    return ""
-
-def create_chain(vectorstore):
-    # Set up retriever with k=10
+def create_chain(vectorstore, llm):
+    prompt = PromptTemplate(
+        input_variables=["context", "chat_history", "question"],
+        template=qa_template
+    )
+    
     retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
     return ConversationalRetrievalChain.from_llm(
-        llm=turbo_llm,
+        llm=llm,
         retriever=retriever,
-        memory=memory,
+        memory=st.session_state.memory,
         return_source_documents=True,
         combine_docs_chain_kwargs={'prompt': prompt},
         verbose=True
     )
 
-# Streamlit app setup
 def main():
-    st.title("Composite AI tutor")
-    st.write("Ask questions regarding composites from MECHANICS OF COMPOSITE MATERIALS textbook.")
+    st.set_page_config(page_title="RAG QA Bot", page_icon="🤖", layout="wide")
 
-    # Path to preloaded .txt file
-    file_path = "/Users/gurunanmapurushotam/Documents/rag_llm/rag_llm_app/Mechanics of Composite Materials 2nd Ed 1999 BY [Taylor & Francis] (1) (1).txt"
-    persist_directory = 'db_vin'
+    st.markdown("""
+        <style>
+        .chat-box { border: 2px solid #e0e0e0; border-radius: 10px; padding: 10px; margin-bottom: 20px; }
+        .user-message { background-color: #e8f5e9; border: 1px solid #c8e6c9; padding: 10px; border-radius: 10px; margin-bottom: 10px; }
+        .bot-message { background-color: #f3e5f5; border: 1px solid #e1bee7; padding: 10px; border-radius: 10px; margin-bottom: 10px; }
+        .input-container { position: fixed; bottom: 0; width: 100%; background-color: #ffffff; padding: 10px; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    # Load existing vector store or create a new one
-    vectordb = load_existing_vectorstore(persist_directory)
-    # if vectordb is None:
-    #     vectordb = create_vectorstore_from_path(file_path, persist_directory)
+    st.title("🤖 RAG Composite AI Tutor")
 
-    if vectordb is None:
-        st.error("Vector store could not be loaded or created. Please check the file and try again.")
+    api_key = set_openai_api_key()
+    if not api_key:
         return
 
-    # Create the chain
-    qa_chain = create_chain(vectordb)
-
-    # Initialize chat history in Streamlit session state
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
-
-    # User input
-    user_input = st.text_input("Ask a question:")
-
-    if user_input:
-        # Get response from the chain
-        result = qa_chain.invoke({"question": user_input})
-        response = result['answer']
-
-        # Format sources and add to response
-        sources = format_source_documents(result.get('source_documents', []))
-        if sources:
-            response += sources
-
-        # Display response
-        st.session_state.chat_history.append((user_input, response))
+    if 'qa_chain' not in st.session_state:
+        llm = initialize_llm()
+        
+        # Download and unzip the vector store from Google Drive
+        google_drive_url = "https://drive.google.com/uc?id=1st0NiHiRjLX2NUvCuph3814Zu-oQ0iBs"
+        download_and_unzip_from_drive(google_drive_url)
+        
+        # Verify the 'db' directory exists
+        if not os.path.exists('db'):
+            st.error("The 'db_vin' directory does not exist. Please check the download and unzip process.")
+            return
+        
+        # Load the existing vector store
+        vectordb = load_existing_vectorstore()
+        if vectordb is None:
+            st.error("Failed to initialize vector store. Please check the 'db' directory.")
+            return
+            
+        # Create the QA chain
+        st.session_state.qa_chain = create_chain(vectordb, llm)
+        if st.session_state.qa_chain is None:
+            st.error("Failed to initialize QA chain")
+            return
 
     # Display chat history
-    if st.session_state.chat_history:
-        for question, answer in st.session_state.chat_history:
-            st.markdown(f"**You:** {question}")
-            st.markdown(f"**Bot:** {answer}")
+    for question, answer in st.session_state.chat_history:
+        st.markdown(f'<div class="chat-box user-message"><strong>You:</strong> {question}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="chat-box bot-message"><strong>Bot:</strong> {answer}</div>', unsafe_allow_html=True)
+
+    # User input
+    user_input = st.text_input("Ask a question:", key="user_input")
+
+    if user_input and user_input != st.session_state.get('last_input'):
+        st.session_state.last_input = user_input
+        
+        with st.spinner("Processing..."):
+            result = st.session_state.qa_chain.invoke({"question": user_input})
+            response = result['answer']
+            st.session_state.chat_history.append((user_input, response))
+            
+        st.rerun()
 
 if __name__ == "__main__":
     main()
