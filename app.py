@@ -48,7 +48,7 @@ def set_openai_api_key():
 
 def initialize_llm():
     return ChatOpenAI(
-        model_name="gpt-4",
+        model_name="gpt-3.5-turbo",
         temperature=0.7
     )
 
