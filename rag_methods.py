@@ -86,11 +86,22 @@ def load_pretrained_db():
                 model="text-embedding-3-large",
                 openai_api_version="2024-02-15-preview",
             )
-        
+
+        # Chroma client configuration
+        import chromadb
+        client_settings = chromadb.config.Settings(
+            is_persistent=True,
+            allow_reset=True,
+            anonymized_telemetry=False
+        )
+
         vector_db = Chroma(
             persist_directory=os.path.join(temp_dir, collection_name),
             embedding_function=embedding,
             collection_name=collection_name,
+            client_settings=client_settings,
+            tenant="default_tenant",
+            database="default_database"
         )
         
         return vector_db
