@@ -64,6 +64,7 @@ def create_chain(vectorstore, llm):
        template="""You are an expert in composite materials engineering. Use the context and conversation history to provide technically accurate, clear answers focused on composite materials science and engineering.
 
 Rules:
+- Answer only in english
 - Use engineering terminology appropriately
 - Include relevant equations and units when needed
 - Explain complex concepts with simple analogies when helpful
