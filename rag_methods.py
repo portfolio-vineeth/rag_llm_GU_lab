@@ -87,21 +87,25 @@ def load_pretrained_db():
                 openai_api_version="2024-02-15-preview",
             )
 
-        # Chroma client configuration
+        # Modern Chroma client configuration
         import chromadb
-        client_settings = chromadb.config.Settings(
-            is_persistent=True,
-            allow_reset=True,
-            anonymized_telemetry=False
+        from chromadb.config import Settings
+        
+        client = chromadb.PersistentClient(
+            path=os.path.join(temp_dir, collection_name),
+            settings=Settings(
+                allow_reset=True,
+                anonymized_telemetry=False,
+                tenant_id="default_tenant",  # Correct location for tenant
+                database="default_database"  # Correct location for database
+            )
         )
 
         vector_db = Chroma(
-            persist_directory=os.path.join(temp_dir, collection_name),
-            embedding_function=embedding,
+            client=client,
             collection_name=collection_name,
-            client_settings=client_settings,
-            tenant="default_tenant",
-            database="default_database"
+            embedding_function=embedding
+            # Removed tenant/database from here
         )
         
         return vector_db
@@ -109,9 +113,7 @@ def load_pretrained_db():
     except Exception as e:
         st.error(f"Error loading pretrained vector database: {e}")
         return None
-    
-    finally:
-        pass
+
 
 def cleanup_temp_directory():
     """Clean up temporary directory when session ends"""
