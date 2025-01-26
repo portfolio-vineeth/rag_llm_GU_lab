@@ -71,30 +71,6 @@ def load_existing_vectorstore(persist_directory='db'):
         st.error(f"Error loading vector store: {e}")
         return None
 
-def create_vectorstore_from_path(file_path, persist_directory='db'):
-    try:
-        with open(file_path, "r", encoding="utf-8") as file:
-            content = file.read()
-
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
-        )
-        documents = [Document(page_content=chunk) for chunk in text_splitter.split_text(content)]
-
-        embedding = OpenAIEmbeddings()
-        vectorstore = Chroma.from_documents(
-            documents=documents,
-            embedding=embedding,
-            persist_directory=persist_directory
-        )
-        vectorstore.persist()
-        return vectorstore
-
-    except Exception as e:
-        st.error(f"Error creating vector store: {e}")
-        return None
-
 qa_template = """
 Use the following conversation history and context to answer the question at the end.
 If you don't know the answer, just say that you don't know; don't try to make up an answer.
@@ -150,13 +126,22 @@ def main():
         google_drive_url = "https://drive.google.com/uc?id=1st0NiHiRjLX2NUvCuph3814Zu-oQ0iBs"
         download_and_unzip_from_drive(google_drive_url)
         
-        vectordb = load_existing_vectorstore()
+        # Verify the 'db' directory exists
+        if not os.path.exists('db'):
+            st.error("The 'db' directory does not exist. Please check the download and unzip process.")
+            return
         
+        # Load the existing vector store
+        vectordb = load_existing_vectorstore()
         if vectordb is None:
-            st.error("Failed to initialize vector store")
+            st.error("Failed to initialize vector store. Please check the 'db' directory.")
             return
             
+        # Create the QA chain
         st.session_state.qa_chain = create_chain(vectordb, llm)
+        if st.session_state.qa_chain is None:
+            st.error("Failed to initialize QA chain")
+            return
 
     # Display chat history
     for question, answer in st.session_state.chat_history:
