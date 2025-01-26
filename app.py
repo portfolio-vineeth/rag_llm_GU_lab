@@ -120,7 +120,15 @@ else:
         with cols0[1]:
             if st.button("Clear Chat", type="primary"):
                 st.session_state.messages = []
+                if 'vector_db' in st.session_state:
+                    try:
+                        st.session_state.vector_db.delete_collection()
+                    except Exception as e:
+                        st.error(f"Error deleting collection: {e}")
+                    del st.session_state.vector_db
+                st.session_state.rag_sources = []
                 cleanup_temp_directory()
+                st.rerun()
 
         # Knowledge base selection
         kb_option = st.radio(
@@ -164,6 +172,10 @@ else:
                     if new_vector_db:
                         # Clear previous non-composite DB
                         if 'vector_db' in st.session_state:
+                            try:
+                                st.session_state.vector_db.delete_collection()
+                            except Exception as e:
+                                st.error(f"Error deleting collection: {e}")
                             del st.session_state.vector_db
                         
                         new_vector_db._is_composite_db = True
