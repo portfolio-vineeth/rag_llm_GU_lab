@@ -53,6 +53,9 @@ def initialize_llm():
     )
 
 def download_and_unzip_from_drive(url, output_dir='db'):
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
     # Download the file from Google Drive
     gdown.download(url, output='temp.zip', quiet=False)
     
@@ -62,6 +65,12 @@ def download_and_unzip_from_drive(url, output_dir='db'):
     
     # Remove the temporary zip file
     os.remove('temp.zip')
+    
+    # Verify files were extracted
+    if not os.listdir(output_dir):
+        st.error(f"Failed to unzip files to {output_dir}. The directory is empty.")
+        return False
+    return True
 
 def load_existing_vectorstore(persist_directory='db'):
     try:
